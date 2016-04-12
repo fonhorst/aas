@@ -21,7 +21,10 @@ object RunIntro extends Serializable {
    
     val rawblocks = sc.textFile("hdfs:///user/ds/linkage")
     def isHeader(line: String) = line.contains("id_1")
-    
+
+
+
+
     val noheader = rawblocks.filter(x => !isHeader(x))
     def toDouble(s: String) = {
      if ("?".equals(s)) Double.NaN else s.toDouble
