@@ -14,7 +14,7 @@ object MyApp {
 
     val users = ProcessingFuncs.loadUsersFromJson("/mnt/share133/data-lect/Trump/users-subset.json").cache()
 
-    val posts = ProcessingFuncs.loadUsersFromJson("/mnt/share133/data-lect/Trump/users_posts-subset.json").cache()
+    val posts = ProcessingFuncs.loadPostsFromJson("/mnt/share133/data-lect/Trump/users_posts-subset.json").cache()
 
     println(users.count())
     println(posts.count())

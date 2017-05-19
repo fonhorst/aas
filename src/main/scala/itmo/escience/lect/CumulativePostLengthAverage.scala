@@ -120,7 +120,7 @@ object ProcessingFuncs {
       .collectAsMap()
   }
 
-  def calculateAveragePostSizePerUser(posts: RDD[Post])(implicit sc: SparkContext): Map[String, Double] = {
+  def calculateAveragePostSizePerUserCumulative(posts: RDD[Post])(implicit sc: SparkContext): Map[String, Double] = {
 
     val cumulAvr = new CumulativePostLengthAverage()
 
