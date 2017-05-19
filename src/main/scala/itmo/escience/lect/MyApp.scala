@@ -16,13 +16,9 @@ object MyApp {
 
     val posts = ProcessingFuncs.loadUsersFromJson("/mnt/share133/data-lect/Trump/users_posts-subset.json").cache()
 
-//    "/mnt/share133/data-lect/Trump/users_posts-subset-2.json"
+    println(users.count())
+    println(posts.count())
 
-//    calculateAveragePostSizePerUser(posts)
-//
-//    val fullPosts = byJoiningWithUsers(sc, users, posts)
-//
-//    fullPosts.toDF().write.save("data.parquet")
   }
 
   private def initSpark(): SparkSession = {

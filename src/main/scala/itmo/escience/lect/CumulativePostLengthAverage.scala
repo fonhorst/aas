@@ -3,17 +3,24 @@ package itmo.escience.lect
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.util.AccumulatorV2
+import org.json4s.JsonAST.{JField, JInt, JObject, JString}
+import org.json4s.{Formats, JValue, MappingException, Serializer, TypeInfo}
 import spray.json.{JsString, JsValue, RootJsonFormat, deserializationError}
 
 import scala.collection.{Map, mutable}
-
 import spray.json.DefaultJsonProtocol._
 import spray.json._
+
+import org.json4s._
+import org.json4s.jackson.Serialization
+import org.json4s.jackson.Serialization.read
+
+import scala.collection._
 
 /**
   * Created by nikolay on 19.05.17.
   */
-class CumulativePostLengthAverage private (averPostLengthByUsers: mutable.HashMap[String, (Int, Int)])
+class CumulativePostLengthAverage private (averPostLengthByUsers: scala.collection.mutable.HashMap[String, (Int, Int)])
   extends AccumulatorV2[(String, Int), mutable.HashMap[String, (Int, Int)]] {
 
   def this() = this(new mutable.HashMap[String, (Int, Int)]())
@@ -48,39 +55,38 @@ case class User(_id: String, key: String)
 case class Post(_id: String, text: String, userId: String, userName: Option[String] = None)
 
 object JsonFormats {
-  val userJsonFormat = UserJsonFormat
-  val postJsonFormat = PostJsonFormat
+  val userJsonFormat = UserSerializer
+  val postJsonFormat = PostSerializer
 }
 
-object UserJsonFormat extends RootJsonFormat[User] {
+object UserSerializer extends Serializer[User] {
+  private val MyClassClass = classOf[User]
 
-  def write(c: User): JsValue = {
-    throw new NotImplementedError()
+  def deserialize(implicit format: Formats): PartialFunction[(TypeInfo, JValue), User] = {
+    case (TypeInfo(MyClassClass, _), json) =>
+      val id = (json \ "_id").extract[String]
+      val key = (json \ "key").extract[String]
+      User(id, key)
   }
 
-  def read(value: JsValue): User = {
-    value.asJsObject.getFields("_id", "key") match {
-      case Seq(JsString(id), JsString(key)) =>
-        User(id, key)
-      case _ => deserializationError("User expected")
-    }
+  def serialize(implicit formats: Formats): PartialFunction[Any, JValue] = {
+    throw new NotImplementedError()
   }
 }
 
+object PostSerializer extends Serializer[Post] {
+  private val MyClassClass = classOf[Post]
 
-object PostJsonFormat extends RootJsonFormat[Post] {
-
-  def write(c: Post): JsValue = {
-    throw new NotImplementedError()
+  def deserialize(implicit format: Formats): PartialFunction[(TypeInfo, JValue), Post] = {
+    case (TypeInfo(MyClassClass, _), json) =>
+      val id = (json \ "_id").extract[String]
+      val text = (json \ "text").extract[String]
+      val userId = (json \ "user" \ "id_str").extract[String]
+      Post(id, text, userId)
   }
 
-  def read(value: JsValue): Post = {
-    value.asJsObject.getFields("_id", "text", "user") match {
-      case Seq(JsString(id), JsString(text), user) =>
-        val userId = user.asJsObject.getFields("id_str").head.toString()
-        Post(id, text, userId)
-      case _ => deserializationError("Post expected")
-    }
+  def serialize(implicit formats: Formats): PartialFunction[Any, JValue] = {
+    throw new NotImplementedError()
   }
 }
 
@@ -89,13 +95,20 @@ object ProcessingFuncs {
   def loadUsersFromJson(path: String)(implicit sc: SparkContext): RDD[User] = {
       sc.textFile(path)
         .filter(_.nonEmpty)
-        .map(_.parseJson.convertTo[User](JsonFormats.userJsonFormat))
+        .map{ u =>
+          implicit val formats = DefaultFormats + JsonFormats.userJsonFormat
+          read[User](u)
+        }
   }
 
   def loadPostsFromJson(path: String)(implicit sc: SparkContext): RDD[Post] = {
     sc.textFile(path).cache()
       .filter(_.nonEmpty)
-      .map(_.parseJson.convertTo[Post](JsonFormats.postJsonFormat))
+      .map {
+        p =>
+          implicit val formats = DefaultFormats + JsonFormats.postJsonFormat
+          read[Post](p)
+      }
   }
 
   def calculateAveragePostSizePerUser(posts: RDD[Post]): Map[String, Double] = {
