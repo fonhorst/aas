@@ -1,8 +1,11 @@
 package itmo.escience.lect
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import spray.json.DefaultJsonProtocol._
 import spray.json._
+
+import scala.collection._
 
 import scala.util.Random
 
@@ -13,21 +16,31 @@ object MyApp {
     val sc = initSpark()
 
     val users =
-      sc.textFile("/mnt/share133/data-lect/Trump/users_posts-subset.json")
+      sc.textFile("/mnt/share133/data-lect/Trump/users-subset.json")
         .filter(_.nonEmpty)
-        .map(_.parseJson.convertTo[User](JsonFormats.userJsonFormat)).take(10)
+        .map(_.parseJson.convertTo[User](JsonFormats.userJsonFormat))
+        .cache()
 
 
     val posts =
-      sc.textFile("/mnt/share133/data-lect/Trump/users_posts-subset.json")
+      sc.textFile("/mnt/share133/data-lect/Trump/users_posts-subset.json").cache()
       .filter(_.nonEmpty)
-      .map(_.parseJson.convertTo[Post](JsonFormats.postJsonFormat)).take(10)
+      .map(_.parseJson.convertTo[Post](JsonFormats.postJsonFormat))
+      .cache()
+
+    val posts2 =
+      sc.textFile("/mnt/share133/data-lect/Trump/users_posts-subset-2.json").cache()
+        .filter(_.nonEmpty)
+        .map(_.parseJson.convertTo[Post](JsonFormats.postJsonFormat))
+        .cache()
+
+    calculateAveragePostSizePerUser(posts)
 
     println(users)
     println(posts)
   }
 
-  def initSpark(): SparkContext = {
+  private def initSpark(): SparkContext = {
     val master = "local[4]"
     var sparkConf = new SparkConf()
       .setMaster(master)
@@ -36,11 +49,53 @@ object MyApp {
     val sc = new SparkContext(sparkConf)
     sc
   }
+
+  private def calculateAveragePostSizePerUser(posts: RDD[Post]): Map[String, Double] = {
+    posts
+      .groupBy(_.userId)
+      .map({
+        case (userId, uposts) => (userId, uposts.map(_.text.length).sum.toDouble / uposts.size)
+      })
+      .collectAsMap()
+  }
+
+  private def calculateAveragePostSizePerUser(sc: SparkContext, posts: RDD[Post]): Map[String, Double] = {
+
+    val cumulAvr = new CumulativePostLengthAverage()
+
+    sc.register(cumulAvr)
+
+    posts.foreach { p =>
+      cumulAvr.add(p.userId -> p.text.length)
+    }
+
+    cumulAvr.value.map { case (uId, (sumlength, count)) => uId -> sumlength.toDouble / count}.toMap
+  }
+
+  private def broadcastingOfUsers(sc: SparkContext, users: RDD[User], posts: RDD[Post]): RDD[Post] = {
+
+    val userNames = users.map(u => u._id -> u.key).distinct().collect().toMap
+
+    val bUserNames = sc.broadcast(userNames)
+
+    posts.map(p => Post( p._id, p.text, p.userId,
+      Option(bUserNames.value.getOrElse(p.userId, null)))
+    )
+  }
+
+  private def byJoiningWithUsers(sc: SparkContext, users: RDD[User], posts: RDD[Post]): RDD[Post] = {
+    val mappedPosts = posts.map(p => p.userId -> p)
+    val mappedUsers = users.map(u => u._id -> u)
+
+    mappedPosts.join(mappedUsers).map { case (uId, (p, u)) => Post(p._id, p.text, p.userId, Option(u.key) )}
+  }
+
+
 }
 
 case class User(_id: String, key: String)
 
-case class Post(_id: String, text: String, userId: String)
+case class Post(_id: String, text: String, userId: String, userName: Option[String] = None)
 
 object JsonFormats {
   val userJsonFormat = UserJsonFormat
